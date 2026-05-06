@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE / 에디터 설정
+.claude/
+.vscode/
+.idea/
+
+# 진단/임시 캡처 (사용자 환경 의존)
+capture_full.png
+crop_mobs.png
+minimap_debug.png
+match_result.png
+
+# 사용자 환경별 미니맵 설정 (해상도/창 크기에 따라 다름)
+minimap_config.json
+
+# 진단용 임시 스크립트
+_diag_match.py
+_crop_inspect.py
+
+# templates 안의 임시 캡처 (사용자 개별 캡처)
+templates/2026*.png
