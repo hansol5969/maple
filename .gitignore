@@ -13,9 +13,20 @@ capture_full.png
 crop_mobs.png
 minimap_debug.png
 match_result.png
+mm_alldots.png
+mm_diag.png
+mm_diag_mask.png
 
 # 사용자 환경별 미니맵 설정 (해상도/창 크기에 따라 다름)
 minimap_config.json
+minimap_config_red.json
+
+# 캡차 처리 동적 로그
+captcha_logs/
+
+# 사용자 환경별 captcha/shop assets (Windows 예약어 con.png.png 포함)
+captcha_assets/
+shop_assets/
 
 # 진단용 임시 스크립트
 _diag_match.py

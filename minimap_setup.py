@@ -11,7 +11,9 @@
   s = 저장
   q / ESC = 종료
 
-저장 후 macro.py가 자동 사용함.
+사용:
+  python minimap_setup.py        # macro.py / macro_v2.py 용 (minimap_config.json)
+  python minimap_setup_red.py    # macro_red.py 용 (minimap_config_red.json)
 """
 
 import json
@@ -24,6 +26,7 @@ import mss
 sys.path.insert(0, '.')
 import macro
 
+# 다른 셋업 wrapper(minimap_setup_red.py 등)가 import 후 덮어쓰는 모듈 변수.
 CONFIG_PATH = 'minimap_config.json'
 WINDOW_NAME = 'minimap_setup'
 
@@ -92,9 +95,11 @@ def on_mouse(event, mx, my, flags, _):
             bgr = state['screen'][y, x]
             state['char_color_bgr'] = [int(c) for c in bgr]
             state['floor1_y_baseline'] = y - y1  # 미니맵 내부 Y
+            state['char_setup_x'] = x - x1       # 미니맵 내부 X — macro_red 안전지대 X 기준 등에 활용
             state['mode'] = 'done'
             print(f'[2/2] 캐릭터 색 BGR = {state["char_color_bgr"]} (원본 좌표 {x},{y})')
             print(f'      1층 Y 기준선 = {state["floor1_y_baseline"]} (미니맵 내부)')
+            print(f'      클릭 X = {state["char_setup_x"]} (미니맵 내부, 안전지대 등 기준점)')
             print(f'      s 키 = 저장 / +,- 키 = 색 허용오차 조정')
 
 
@@ -213,6 +218,8 @@ def main():
                     'tolerance': state['tolerance'],
                     'floor1_y_baseline': state['floor1_y_baseline'],
                 }
+                if state.get('char_setup_x') is not None:
+                    cfg['char_setup_x'] = state['char_setup_x']
                 with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
                     json.dump(cfg, f, indent=2)
                 print(f'저장: {CONFIG_PATH}')
