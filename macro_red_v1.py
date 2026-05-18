@@ -266,6 +266,8 @@ MOB_TEMPLATES = [
 # (refresh_game_region()으로 GAME_REGION 갱신 후 _abs() 헬퍼가 차이만큼 더해줌)
 COORDS_CAL_GAME_LEFT = 433     # 좌표 잡았을 때의 게임창 left (mm_probe 출력에서 확인)
 COORDS_CAL_GAME_TOP  = 172     # 좌표 잡았을 때의 게임창 top
+COORDS_CAL_GAME_W    = 3126    # 좌표 잡았을 때의 게임창 width (스케일 보정 기준)
+COORDS_CAL_GAME_H    = 1758    # 좌표 잡았을 때의 게임창 height (16:9)
 CASH_TAB_ABS         = (3170, 318)
 PORTABLE_SHOP_ABS    = (3090, 957)
 SHOP_FIRST_SLOT_ABS  = (2060, 964)   # 상점 UI 등장 검증용 (열림 여부 std 체크)
@@ -345,6 +347,14 @@ def find_game_region(title_keyword: str):
 _sct = mss.mss()
 GAME_REGION = find_game_region(GAME_WINDOW_TITLE) or _sct.monitors[1]
 
+# 픽셀 거리 상수 자동 스케일링 — 캘리브레이션 게임창 대비 현재 게임창 비율로 보정
+_SCALE_X = GAME_REGION['width']  / COORDS_CAL_GAME_W
+_SCALE_Y = GAME_REGION['height'] / COORDS_CAL_GAME_H
+AOE_RADIUS_X        = int(AOE_RADIUS_X        * _SCALE_X)
+MOB_DETECT_X_RADIUS = int(MOB_DETECT_X_RADIUS * _SCALE_X)
+SINGLE_RANGE_X      = int(SINGLE_RANGE_X      * _SCALE_X)
+Y_TOLERANCE         = int(Y_TOLERANCE         * _SCALE_Y)
+
 LIE_ENABLED = os.path.exists(LIE_TEMPLATE)
 CON_ENABLED = os.path.exists(CON_TEMPLATE)
 
@@ -377,15 +387,22 @@ def refresh_game_region() -> bool:
 
 
 def _abs(x: int, y: int) -> tuple:
-    """캘리브레이션 시점의 절대 좌표 → 현재 게임창 위치 보정한 절대 좌표."""
-    dx = GAME_REGION['left'] - COORDS_CAL_GAME_LEFT
-    dy = GAME_REGION['top'] - COORDS_CAL_GAME_TOP
-    return x + dx, y + dy
+    """캘리브레이션 시점의 절대 좌표 → 현재 게임창 위치/크기 보정한 절대 좌표.
+    게임창이 다른 크기로 떠도 (window/cal) 비율로 스케일 → 같은 UI 요소 클릭."""
+    rel_x = x - COORDS_CAL_GAME_LEFT
+    rel_y = y - COORDS_CAL_GAME_TOP
+    sx = GAME_REGION['width']  / COORDS_CAL_GAME_W
+    sy = GAME_REGION['height'] / COORDS_CAL_GAME_H
+    return int(rel_x * sx + GAME_REGION['left']), int(rel_y * sy + GAME_REGION['top'])
 
 
 def _game_rel(x: int, y: int) -> tuple:
-    """캘리브레이션 절대 좌표 → 현재 game grab 영역 내 상대 좌표."""
-    return x - COORDS_CAL_GAME_LEFT, y - COORDS_CAL_GAME_TOP
+    """캘리브레이션 절대 좌표 → 현재 game grab 영역 내 상대 좌표 (스케일 반영)."""
+    rel_x = x - COORDS_CAL_GAME_LEFT
+    rel_y = y - COORDS_CAL_GAME_TOP
+    sx = GAME_REGION['width']  / COORDS_CAL_GAME_W
+    sy = GAME_REGION['height'] / COORDS_CAL_GAME_H
+    return int(rel_x * sx), int(rel_y * sy)
 
 
 # SendInput 마우스 이벤트 (pyautogui보다 게임에서 안정적)
@@ -874,6 +891,10 @@ def _handle_lie_detector_core():
     except Exception:
         pass
 
+    # 다이얼로그 로딩 대기 — puzzle 이미지 안 떠 있으면 slot 검출 실패
+    print('[lie] 다이얼로그 로딩 대기 1.5s')
+    rsleep(1.5, 0.3)
+
     if not os.path.exists(CAPTCHA_SOLVER_PATH):
         print(f'[lie] {CAPTCHA_SOLVER_PATH} 없음 → 수동 모드')
         return _handle_lie_detector_manual()
@@ -1142,7 +1163,7 @@ FELL_HOLD_SECONDS      = 0.4   # 위 조건 이 초 지속하면 확정 (오탐 
 # 2층 감지 — 미니맵 Y가 1층 기준선보다 위로(=Y가 작아짐) FLOOR2_DELTA_Y 이상이면 2층으로 봄
 FLOOR2_DELTA_Y       = 6     # 미니맵에서 1층/2층 Y 차이 (작은 미니맵이라 픽셀 단위가 작음)
 FLOOR2_HOLD_SECONDS  = 0.6   # 이 시간 동안 위에 있으면 2층 확정
-DROP_DOWN_COOLDOWN   = 1.2   # 아래 텔포 시도 간격
+DROP_DOWN_COOLDOWN   = 0.6   # 아래 텔포 시도 간격
 
 # === 3층 맵 (red) 회수 루트 설정 =====================================
 # 사냥은 2층(floor1_y_baseline=160)에서, 2분마다 회수 루트로 1/2/3층 다 훑어 펫이 줍게 함.

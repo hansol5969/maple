@@ -16,6 +16,13 @@
 from __future__ import annotations
 import argparse, ctypes, os, random, sys, time
 
+# stdout/stderr UTF-8 강제 — CP949 콘솔에서 em dash 등 유니코드 print 시 UnicodeEncodeError 방지
+try:
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+except (AttributeError, OSError):
+    pass
+
 if sys.platform == "win32":
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
@@ -37,10 +44,10 @@ pyautogui.FAILSAFE = True
 ROOT = os.path.dirname(os.path.abspath(__file__))
 ASSETS = os.path.join(ROOT, "captcha_assets")
 
-# 캡차 다이얼로그 내부 상대 좌표 (분석 결과 기반)
-DIALOG_W, DIALOG_H = 786, 800
-SLIDER_REL = (47, 485)   # 슬라이더 초기 위치 (드래그 후엔 바뀜 → anchor로 부적합)
-CONFIRM_REL = (568, 553) # 확인 버튼 위치 — 드래그해도 안 바뀜 → anchor로 사용
+# 캡차 다이얼로그 내부 상대 좌표 (옛 게임창 3126 기준 786,800 → 새 1995 기준 0.638 스케일)
+DIALOG_W, DIALOG_H = 502, 511
+SLIDER_REL = (30, 310)   # 슬라이더 초기 위치 (드래그 후엔 바뀜 → anchor로 부적합)
+CONFIRM_REL = (362, 353) # 확인 버튼 위치 — 드래그해도 안 바뀜 → anchor로 사용
 
 
 # ---------- DirectInput scancode ENTER (macro.py와 동일 방식) ----------

@@ -45,14 +45,15 @@ def main():
     if m.MINIMAP_CFG:
         print(f'  미니맵: rect={m.MINIMAP_CFG["minimap_rect"]}')
         print(f'  사냥라인 Y={m.FLOOR2_Y}  사냥 zone X={m.HUNT_X_MIN}-{m.HUNT_X_MAX}')
-        print(f'  Y=140 z hold platform  Y=124 최상층  Y=131 위 platform  Y=113 3층')
+        print(f'  Y={m.FLOOR2_RIGHT_TOP_Y} z hold platform  Y={m.COLLECT_TOP_PLATFORM_Y} 최상층  '
+              f'Y={m.FLOOR3_Y} 안전지대  Y={m.ROUTE_3F_PLATFORM_Y} 3층')
         print(f'  1층 Y={m.FLOOR1_Y}  좌측 회수={m.COLLECT_F1_LEFT_STOP_X}  '
               f'우측={m.COLLECT_F1_PATROL_X[1]}  up-tp={m.COLLECT_F1_UPTP_X}')
     else:
         print('[!] minimap_config_red.json 없음')
         return
     print()
-    print('  ⚠ 시작 전: 캐릭이 2층 사냥 라인(Y=159) 어디든 위치')
+    print(f'  ⚠ 시작 전: 캐릭이 2층 사냥 라인(Y={m.FLOOR2_Y}) 어디든 위치')
     print('  F12 = 긴급정지')
     for sec in (3, 2, 1):
         print(f'  {sec}...', flush=True)

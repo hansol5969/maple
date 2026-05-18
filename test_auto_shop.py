@@ -10,7 +10,7 @@ F12 = 강제 정지.
 """
 import time
 import keyboard
-import macro
+import macro_red as macro
 
 
 def main():
