@@ -30,3 +30,6 @@ _crop_inspect.py
 
 # templates 안의 임시 캡처 (사용자 개별 캡처)
 templates/2026*.png
+
+# word 캡차 작업용 zip (디렉토리와 중복)
+captcha_assets/word.zip

@@ -443,6 +443,8 @@ def click_at(x: int, y: int, double: bool = False) -> None:
 
 
 _shop_captcha_solved = False  # 마지막 _ShopAborted가 캡차 풀이로 발생했나 — auto_shop이 자동 재시도 판단용
+_shop_open_fail_streak = 0    # 연속 "상점 안 열림" 카운터 — N회 넘으면 매크로 정지 (UI 깨짐)
+SHOP_OPEN_FAIL_LIMIT = 5      # 연속 실패 한도
 
 
 class _ShopAborted(Exception):
@@ -1147,6 +1149,8 @@ def char_screen_position() -> Point:
 
 CAPTCHA_SOLVER_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                    'captcha_solver.py')
+CAPTCHA_WORD_SOLVER_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                        'word_captcha_solver.py')
 CAPTCHA_SOLVER_TIMEOUT = 60  # 솔버 프로세스 최대 대기(초)
 LIE_MAX_RETRIES        = 3   # 자동 풀이 최대 재시도 횟수
 LIE_CON_WAIT_SEC       = 5.0 # 풀이 후 con.png 등장 polling 시간 (성공 판정)
@@ -1211,16 +1215,18 @@ def _handle_lie_detector_core():
             return True
 
         print(f'[lie] 자동 풀이 시도 #{attempt}/{LIE_MAX_RETRIES}')
-        # 각 시도 시작 비프 (진행 상황 알림)
         try:
             winsound.Beep(1200, 150)
         except Exception:
             pass
+
+        # word 캡차 솔버 호출 (4글자 코드 매칭 패턴)
+        # 슬라이더 캡차는 당분간 안 나오므로 호출하지 않음 (CAPTCHA_SOLVER_PATH는 자산 보존용으로만 유지)
+        solver_path = CAPTCHA_WORD_SOLVER_PATH
         try:
-            # subprocess stdout/stderr 캡쳐 → macro 로그에 통합
             r = subprocess.run(
-                [sys.executable, CAPTCHA_SOLVER_PATH, '--auto'],
-                cwd=os.path.dirname(CAPTCHA_SOLVER_PATH),
+                [sys.executable, solver_path, '--auto'],
+                cwd=os.path.dirname(solver_path),
                 timeout=CAPTCHA_SOLVER_TIMEOUT,
                 capture_output=True,
                 text=True,
@@ -1229,15 +1235,15 @@ def _handle_lie_detector_core():
             )
             if r.stdout:
                 for line in r.stdout.rstrip().splitlines():
-                    print(f'  [solver] {line}')
+                    print(f'  [word] {line}')
             if r.stderr:
                 for line in r.stderr.rstrip().splitlines():
-                    print(f'  [solver-err] {line}')
-            print(f'[lie] solver exit={r.returncode}')
+                    print(f'  [word-err] {line}')
+            print(f'[lie] word solver exit={r.returncode}')
         except subprocess.TimeoutExpired:
-            print('[lie] 솔버 타임아웃')
+            print('[lie] word 솔버 타임아웃')
         except Exception as e:
-            print(f'[lie] 솔버 에러: {e}')
+            print(f'[lie] word 솔버 에러: {e}')
 
         # 성공 판정: con.png가 LIE_CON_WAIT_SEC 안에 떠야 함
         print(f'[lie] con.png 등장 폴링 ({LIE_CON_WAIT_SEC:.0f}초)...')
@@ -1399,6 +1405,8 @@ def auto_shop(_retry_after_captcha: bool = True) -> bool:
       5) 상점 닫기 → 장비 탭
     캡차로 중단되면 풀이 후 한 번 자동 재시도 (_retry_after_captcha=True).
     """
+    global _shop_open_fail_streak, STOP
+
     def beep(freq=1500, dur=80):
         try: winsound.Beep(freq, dur)
         except Exception: pass
@@ -1422,27 +1430,63 @@ def auto_shop(_retry_after_captcha: bool = True) -> bool:
         cx, cy = _abs(*CASH_TAB_ABS)
         print(f'[shop] [1] 캐시 탭 클릭 ({cx},{cy})')
         click_at(cx, cy)
-        rsleep(0.5, 0.2)
+        rsleep(1.0, 0.2)  # 캐시 탭 활성화 대기 (0.5→1.0, 첫 클릭 후 UI 전환 시간)
         _shop_check_stop()
 
-        # 휴대용 상점 더블클릭 (최대 2회 시도)
+        # 휴대용 상점 더블클릭 (최대 4회 시도)
+        # ★ 핵심 이슈: 더블클릭이 게임에서 단일 클릭으로 인식되면 휴대용 상점 아이콘이
+        # "손에 잡힌 상태"가 됨. 이후 더블클릭은 놓기/잡기 토글만 반복 → 영원히 안 열림.
+        # ESC는 인벤 닫힘 우려로 금지 → 같은 자리 단일 클릭으로 토글 (잡힘→놓기) 시도.
+        # 잡힌 상태였다면 단일 클릭으로 원위치에 놓이고 손이 빔 → 다음 더블클릭 가능.
+        # 안 잡힌 상태에서 단일 클릭 시 잡히지만, 그 다음 더블클릭이 토글로 풀리면서 사용됨.
         ps_x, ps_y = _abs(*PORTABLE_SHOP_ABS)
         opened = False
-        for attempt in range(2):
+        for attempt in range(4):
             print(f'[shop] [2] 휴대용 상점 더블클릭 ({ps_x},{ps_y}) — 시도 #{attempt + 1}')
             click_at(ps_x, ps_y, double=True)
-            rsleep(1.2, 0.2)
+            rsleep(1.4, 0.2)  # 상점 UI 등장 대기
             _shop_check_stop()
             if shop_ui_open():
                 print('[shop] 상점 UI 확인됨')
                 opened = True
                 break
-            print('[shop] 상점 UI 미확인 → 재시도')
-            rsleep(0.5, 0.2)
+            print('[shop] 상점 UI 미확인 → 단일 클릭으로 손에 든 아이템 풀기')
+            # 같은 자리 단일 클릭 = 잡혔으면 원위치에 놓기 (손 빔)
+            click_at(ps_x, ps_y, double=False)
+            rsleep(0.6, 0.2)
+            _shop_check_stop()
         if not opened:
             print('[shop] !! 상점 안 열림 — 중단')
             beep(400, 400)
+            # ★ 캐시 탭에 갇히면 인벤 트리거 영역(휴대용 상점 슬롯)이 계속 차있어 보여
+            # 다음 사냥 사이클에 또 트리거 → 또 캐시 탭 → 무한 루프.
+            # → 장비 탭으로 강제 복귀해서 트리거 영역을 비움.
+            et_x, et_y = _abs(*EQUIP_TAB_ABS)
+            print(f'[shop] !! 장비 탭 강제 복귀 ({et_x},{et_y}) — 트리거 루프 방지')
+            click_at(et_x, et_y)
+            rsleep(0.6, 0.2)
+            # ★ 마우스 커서가 인벤 트리거 영역(휴대용 상점 슬롯 위)에 남아있으면
+            # 흰색 손가락 커서가 슬롯 픽셀을 덮어 std 낮음 → "다 팔렸다"고 잘못 판단 → 트리거 미발동
+            # → 매크로 헛돌이. 마우스를 트리거 영역에서 명확히 떨어진 곳으로 이동.
+            try:
+                game_cx = GAME_REGION['left'] + GAME_REGION['width'] // 2
+                game_cy = GAME_REGION['top'] + GAME_REGION['height'] // 2
+                ctypes.windll.user32.SetCursorPos(int(game_cx), int(game_cy))
+                print(f'[shop]   ↳ 마우스 게임 중앙 이동 ({game_cx},{game_cy}) — 트리거 영역 std 정상화')
+            except Exception as e:
+                print(f'[shop]   ↳ 마우스 이동 실패 (무시): {e}')
+            # 연속 실패 카운터 — 로그용만 (매크로 정지 X, 사냥은 계속)
+            _shop_open_fail_streak += 1
+            if _shop_open_fail_streak >= SHOP_OPEN_FAIL_LIMIT:
+                print(f'[shop] !! {_shop_open_fail_streak}회 연속 상점 안 열림 — '
+                      f'좌표 캘리브 점검 권장 (PORTABLE_SHOP_ABS={PORTABLE_SHOP_ABS}). 사냥은 계속.')
+                try:
+                    winsound.Beep(600, 200)
+                except Exception:
+                    pass
             return False
+        # 상점 열림 성공 — 연속 실패 카운터 리셋
+        _shop_open_fail_streak = 0
         beep(1500)
 
         # 일괄 판매 버튼 → ENTER (확인 다이얼로그)

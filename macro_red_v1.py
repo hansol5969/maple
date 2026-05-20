@@ -862,6 +862,8 @@ def char_screen_position() -> Point:
 
 CAPTCHA_SOLVER_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                    'captcha_solver.py')
+CAPTCHA_WORD_SOLVER_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                        'word_captcha_solver.py')
 CAPTCHA_SOLVER_TIMEOUT = 60  # 솔버 프로세스 최대 대기(초)
 LIE_MAX_RETRIES        = 3   # 자동 풀이 최대 재시도 횟수
 LIE_CON_WAIT_SEC       = 5.0 # 풀이 후 con.png 등장 polling 시간 (성공 판정)
@@ -914,11 +916,12 @@ def _handle_lie_detector_core():
             winsound.Beep(1200, 150)
         except Exception:
             pass
+        # word 캡차 솔버 호출 (4글자 코드 매칭 패턴)
+        solver_path = CAPTCHA_WORD_SOLVER_PATH
         try:
-            # subprocess stdout/stderr 캡쳐 → macro 로그에 통합
             r = subprocess.run(
-                [sys.executable, CAPTCHA_SOLVER_PATH, '--auto'],
-                cwd=os.path.dirname(CAPTCHA_SOLVER_PATH),
+                [sys.executable, solver_path, '--auto'],
+                cwd=os.path.dirname(solver_path),
                 timeout=CAPTCHA_SOLVER_TIMEOUT,
                 capture_output=True,
                 text=True,
@@ -927,15 +930,15 @@ def _handle_lie_detector_core():
             )
             if r.stdout:
                 for line in r.stdout.rstrip().splitlines():
-                    print(f'  [solver] {line}')
+                    print(f'  [word] {line}')
             if r.stderr:
                 for line in r.stderr.rstrip().splitlines():
-                    print(f'  [solver-err] {line}')
-            print(f'[lie] solver exit={r.returncode}')
+                    print(f'  [word-err] {line}')
+            print(f'[lie] word solver exit={r.returncode}')
         except subprocess.TimeoutExpired:
-            print('[lie] 솔버 타임아웃')
+            print('[lie] word 솔버 타임아웃')
         except Exception as e:
-            print(f'[lie] 솔버 에러: {e}')
+            print(f'[lie] word 솔버 에러: {e}')
 
         # 성공 판정: con.png가 LIE_CON_WAIT_SEC 안에 떠야 함
         print(f'[lie] con.png 등장 폴링 ({LIE_CON_WAIT_SEC:.0f}초)...')
