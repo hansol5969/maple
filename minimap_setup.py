@@ -49,9 +49,24 @@ state = {
 
 
 def capture():
-    with mss.mss() as sct:
-        raw = np.array(sct.grab(macro.GAME_REGION))
-    return cv2.cvtColor(raw, cv2.COLOR_BGRA2BGR)
+    # 보조 모니터·음수 좌표·세로 모드에서 mss가 검은 이미지를 잡을 때 PIL로 fallback
+    bgr = None
+    try:
+        with mss.mss() as sct:
+            raw = np.array(sct.grab(macro.GAME_REGION))
+        bgr = cv2.cvtColor(raw, cv2.COLOR_BGRA2BGR)
+        if float(bgr.mean()) >= 8:
+            return bgr
+    except Exception:
+        pass
+    try:
+        from PIL import ImageGrab
+        r = macro.GAME_REGION
+        bbox = (r['left'], r['top'], r['left'] + r['width'], r['top'] + r['height'])
+        pil_img = ImageGrab.grab(bbox=bbox, all_screens=True)
+        return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+    except Exception:
+        return bgr if bgr is not None else np.zeros((100, 100, 3), dtype=np.uint8)
 
 
 def compute_scale(img):

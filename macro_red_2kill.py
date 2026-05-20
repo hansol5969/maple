@@ -33,6 +33,16 @@ import keyboard
 from dataclasses import dataclass
 from datetime import datetime
 
+# 듀얼·세로·고DPI 모니터에서 게임창 좌표가 가상화되지 않도록 Per-Monitor v2
+if sys.platform == "win32":
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except (AttributeError, OSError):
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except (AttributeError, OSError):
+            pass
+
 
 # ---- 캡차 처리 중에만 로그 파일에 출력 (Tee) ----
 class _Tee:
@@ -382,8 +392,23 @@ if os.path.exists(MINIMAP_CONFIG_PATH):
 
 
 def grab():
-    img = np.array(_sct.grab(GAME_REGION))
-    return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+    # 보조 모니터·음수 좌표·세로 모드에서 mss가 검은 이미지를 잡을 때 PIL로 fallback
+    bgr = None
+    try:
+        raw = np.array(_sct.grab(GAME_REGION))
+        bgr = cv2.cvtColor(raw, cv2.COLOR_BGRA2BGR)
+        if float(bgr.mean()) >= 8:
+            return bgr
+    except Exception:
+        pass
+    try:
+        from PIL import ImageGrab
+        r = GAME_REGION
+        bbox = (r['left'], r['top'], r['left'] + r['width'], r['top'] + r['height'])
+        pil_img = ImageGrab.grab(bbox=bbox, all_screens=True)
+        return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+    except Exception:
+        return bgr if bgr is not None else np.zeros((100, 100, 3), dtype=np.uint8)
 
 
 def refresh_game_region() -> bool:
