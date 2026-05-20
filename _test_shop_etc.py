@@ -34,6 +34,7 @@ def main():
     print(f'  SELL_ALL_BUTTON_ABS: {m.SELL_ALL_BUTTON_ABS}')
     print(f'  ETC_TAB_ABS: {m.ETC_TAB_ABS}')
     print(f'  ETC_SELL_SLOT_ABS: {m.ETC_SELL_SLOT_ABS}')
+    print(f'  ETC_SELL_BUTTON_ABS: {m.ETC_SELL_BUTTON_ABS}')
     print(f'  ETC_CHECK_SLOT_ABS: {m.ETC_CHECK_SLOT_ABS}')
     print(f'  SHOP_CLOSE_ABS: {m.SHOP_CLOSE_ABS}')
     print(f'  EQUIP_TAB_ABS: {m.EQUIP_TAB_ABS}')
