@@ -33,3 +33,19 @@ templates/2026*.png
 
 # word 캡차 작업용 zip (디렉토리와 중복)
 captcha_assets/word.zip
+
+# 투명도형찾기 캡차 영상/디버그 자산 (용량 큼, 환경 의존)
+captcha_assets/invi/*.mp4
+captcha_assets/invi/*.gif
+captcha_assets/invi/*.png
+captcha_assets/invi/viz/
+captcha_assets/invi/frames/
+captcha_assets/invi/*_frames/
+# 단, hint.jpeg는 알고리즘 참고자료라 유지
+!captcha_assets/invi/hint.jpeg
+
+# DNN 모델 (별도 다운로드)
+models/
+
+# 임시 캡처
+mon2_test.png

@@ -1176,9 +1176,34 @@ CAPTCHA_SOLVER_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                    'captcha_solver.py')
 CAPTCHA_WORD_SOLVER_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                         'word_captcha_solver.py')
+CAPTCHA_TRANSLUCENT_SOLVER_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                'captcha_translucent_solver.py')
 CAPTCHA_SOLVER_TIMEOUT = 60  # 솔버 프로세스 최대 대기(초)
 LIE_MAX_RETRIES        = 3   # 자동 풀이 최대 재시도 횟수
 LIE_CON_WAIT_SEC       = 5.0 # 풀이 후 con.png 등장 polling 시간 (성공 판정)
+
+
+def detect_captcha_type(screen):
+    """현재 캡차 유형 판별 — 박스 안 모래 텍스처 비율로 구분.
+    'translucent' (투명도형찾기) | 'word' (4글자) | 'unknown'
+    """
+    H, W = screen.shape[:2]
+    # 박스 영역 추정 (화면 가운데 30~40%)
+    bx = W // 2 - int(W * 0.15)
+    by = int(H * 0.585) - int(H * 0.20)
+    bw = int(W * 0.30)
+    bh = int(H * 0.40)
+    bx = max(0, bx); by = max(0, by)
+    crop = screen[by:by+bh, bx:bx+bw]
+    if crop.size == 0:
+        return 'unknown'
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    sand = ((hsv[:, :, 0] >= 8) & (hsv[:, :, 0] <= 28) &
+            (hsv[:, :, 1] > 60) & (hsv[:, :, 2] > 40) & (hsv[:, :, 2] < 200))
+    sand_ratio = sand.sum() / sand.size if sand.size > 0 else 0
+    if sand_ratio > 0.4:
+        return 'translucent'
+    return 'word'
 
 
 def lie_priority_check() -> bool:
@@ -1245,8 +1270,7 @@ def _handle_lie_detector_core():
         except Exception:
             pass
 
-        # word 캡차 솔버 호출 (4글자 코드 매칭 패턴)
-        # 슬라이더 캡차는 당분간 안 나오므로 호출하지 않음 (CAPTCHA_SOLVER_PATH는 자산 보존용으로만 유지)
+        # 캡차 유형 판별 (투명도형은 아직 통합 보류 — 알고리즘 미완성)
         solver_path = CAPTCHA_WORD_SOLVER_PATH
         try:
             r = subprocess.run(
