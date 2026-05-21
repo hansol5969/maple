@@ -71,13 +71,17 @@ def record(grab_fn, game_region, *, duration_sec=DEFAULT_DURATION_SEC,
             if screen is None:
                 time.sleep(0.05)
                 continue
-            # game_region 안에서만 crop
-            x = game_region['left']
-            y = game_region['top']
-            crop = screen[y:y+H, x:x+W]
-            if crop.shape[:2] != (H, W):
-                crop = cv2.resize(crop, (W, H))
-            out.write(crop)
+            # grab_fn()이 이미 GAME_REGION 영역만 반환 (macro_red.grab은 mss로 영역 캡처).
+            # 추가 crop 하면 좌표 어긋나 잘림 → 크기만 맞추기.
+            if screen.shape[:2] != (H, W):
+                # 혹시 grab_fn이 전체 화면 반환하면 game_region으로 crop
+                if screen.shape[0] >= game_region['top'] + H and screen.shape[1] >= game_region['left'] + W:
+                    x = game_region['left']
+                    y = game_region['top']
+                    screen = screen[y:y+H, x:x+W]
+                else:
+                    screen = cv2.resize(screen, (W, H))
+            out.write(screen)
             n_frames += 1
             next_t += frame_interval
             sleep_time = next_t - time.time()
@@ -101,10 +105,88 @@ def record_background(grab_fn, game_region, **kwargs):
     return t
 
 
+# 캡차 등장 트리거 — templates/invi_ready.png, invi_on.png 매칭
+TRIGGER_TEMPLATES = [
+    'templates/invi_ready.png',
+    'templates/invi_on.png',
+]
+TRIGGER_MATCH_THRESH = 0.7
+TRIGGER_POLL_SEC = 0.5
+COOLDOWN_AFTER_RECORD_SEC = 30  # 녹화 후 같은 캡차 재트리거 방지
+
+
+def _load_templates(paths):
+    templates = []
+    for p in paths:
+        if not os.path.exists(p):
+            print(f'[trigger] template 없음: {p}', flush=True)
+            continue
+        im = cv2.imread(p, cv2.IMREAD_COLOR)
+        if im is None:
+            print(f'[trigger] template 로드 실패: {p}', flush=True)
+            continue
+        templates.append((p, im))
+        print(f'[trigger] loaded: {p} ({im.shape[1]}x{im.shape[0]})', flush=True)
+    return templates
+
+
+def _match_any(screen, templates, thresh):
+    """screen에서 templates 중 하나라도 thresh 이상 매칭되면 (path, score) 리턴."""
+    for path, tpl in templates:
+        if screen.shape[0] < tpl.shape[0] or screen.shape[1] < tpl.shape[1]:
+            continue
+        try:
+            res = cv2.matchTemplate(screen, tpl, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, _ = cv2.minMaxLoc(res)
+            if max_val >= thresh:
+                return path, max_val
+        except Exception:
+            continue
+    return None
+
+
+def watch_and_record(grab_fn, game_region, *,
+                     trigger_paths=None, match_thresh=TRIGGER_MATCH_THRESH,
+                     poll_interval=TRIGGER_POLL_SEC,
+                     duration_sec=DEFAULT_DURATION_SEC,
+                     cooldown_sec=COOLDOWN_AFTER_RECORD_SEC,
+                     on_log=print):
+    """캡차 트리거 감지 → 자동 녹화 무한 루프.
+
+    invi_ready 또는 invi_on 템플릿 매칭되면 즉시 녹화 시작.
+    녹화 끝나면 cooldown_sec 동안 대기 후 다시 watch.
+    """
+    paths = trigger_paths or TRIGGER_TEMPLATES
+    templates = _load_templates(paths)
+    if not templates:
+        on_log('[watch] 트리거 템플릿 없음 — 종료')
+        return
+    on_log(f'[watch] 감시 시작 ({len(templates)} 템플릿, thresh={match_thresh})')
+    while True:
+        screen = grab_fn()
+        if screen is None:
+            time.sleep(poll_interval)
+            continue
+        m = _match_any(screen, templates, match_thresh)
+        if m:
+            path, score = m
+            on_log(f'[trigger] {path} 매칭 (score={score:.3f}) → 녹화 시작')
+            try:
+                winsound = __import__('winsound')
+                winsound.Beep(1500, 100)
+            except Exception:
+                pass
+            out_path = record(grab_fn, game_region, duration_sec=duration_sec, on_log=on_log)
+            on_log(f'[watch] 녹화 완료, {cooldown_sec}s 쿨다운')
+            time.sleep(cooldown_sec)
+        else:
+            time.sleep(poll_interval)
+
+
 if __name__ == '__main__':
-    # 단독 실행 — macro_red.GAME_REGION/grab 사용해서 즉시 녹화
+    # 단독 실행 — 매크로 환경의 grab/GAME_REGION 사용해서 트리거 감시 + 자동 녹화
     import macro_red as m
-    print('[test] 3초 후 녹화 시작 — 캡차 띄워두기')
-    time.sleep(3)
-    out_path = record(m.grab, m.GAME_REGION, duration_sec=20)
-    print(f'[test] 저장: {out_path}')
+    print('[recorder] 매크로 환경 watch 시작 — 캡차 등장 시 자동 녹화')
+    print(f'[recorder] GAME_REGION: {m.GAME_REGION}')
+    print(f'[recorder] 출력 폴더: {os.path.abspath(OUTPUT_DIR)}')
+    watch_and_record(m.grab, m.GAME_REGION)
