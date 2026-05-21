@@ -754,13 +754,13 @@ def drop_down():
     공격 중일 때 호출 시 키 떼기 인식 대기 후 down 송신 — 안 그러면 게임이 공격 모션 중이라 down 무시."""
     attack_release()
     release()
-    rsleep(0.15, 0.1)   # 공격/방향 키 떼기 후 게임 모션 종료 대기 (씹힘 방지 핵심)
+    rsleep(0.15, 0.05)  # 공격/방향 키 떼기 후 게임 모션 종료 대기 (씹힘 방지)
     key_down('down')
-    rsleep(0.35, 0.05)  # 아래 키 인식 시간 충분히
+    rsleep(0.18, 0.05)  # down → x: c789c1a 이전 잘 동작했던 값 (0.35는 너무 길어 drop_through 인식 X)
     key_down(JUMP_KEY)
-    rsleep(0.20, 0.05)  # 점프 누름 길게
+    rsleep(0.10, 0.05)  # 점프 누름
     key_up(JUMP_KEY)
-    rsleep(0.15, 0.1)   # jump 떼고 down 떼기 전 잠깐 (낙하 시작 확실)
+    rsleep(0.12, 0.05)  # jump 떼고 down 떼기 전 잠깐 (낙하 시작 확실)
     key_up('down')
     tap(ATTACK_KEY, ATTACK_DOWN_SECONDS)
 
@@ -1764,9 +1764,9 @@ FELL_TO_FLOOR1_DELTA_Y = 9    # 0.625 스케일 (옛 15)
 FELL_HOLD_SECONDS      = 0.4   # 위 조건 이 초 지속하면 확정 (오탐 방지)
 
 # 2층 위(2층계단/3층) 감지 — 사냥라인 위로 올라간 경우 drop_down으로 복귀
-FLOOR2_DELTA_Y       = 4     # mm_y가 사냥라인보다 이만큼 작아지면 위 platform 판정 (옛 6)
+FLOOR2_DELTA_Y       = 6     # mm_y가 사냥라인보다 이만큼 작아지면 위 platform 판정
 FLOOR2_HOLD_SECONDS  = 0.6   # 위 조건 이 초 지속하면 확정
-DROP_DOWN_COOLDOWN   = 0.6   # drop_down 시도 사이 최소 간격
+DROP_DOWN_COOLDOWN   = 1.2   # drop_down 시도 사이 최소 간격
 
 # z hold platform 범위 142-151 (사용자 측정, mm_y=89)
 HUNT_X_MIN = 142
@@ -2284,10 +2284,13 @@ def _route_to_x(x_min: int, x_max: int, target_y: int = None,
         dx = target_center - pos[0]
         direction = LEFT if dx < 0 else RIGHT
         dx_sign = -1 if dx < 0 else (1 if dx > 0 else 0)
-        # over-shoot 감지: 부호 반전 = 텔포가 target을 지나쳐 반대편으로
-        # 텔포만 사용 — walk 금지. over-shoot마다 도착 tolerance 1씩 증가, 최대 8.
-        # 8회 이상도 도착 못 하면 무한 왕복으로 판단해 일찍 종료.
-        if last_dx_sign != 0 and dx_sign != 0 and last_dx_sign != dx_sign:
+        # over-shoot 감지: 부호 반전 = 텔포가 target을 지나쳐 반대편으로.
+        # 단, X가 이미 목표 범위 안이면 진짜 over-shoot 아니라 target 부근 도착 시도 중 진동 —
+        # 도착 판정이 다른 사유(Y mismatch 등)로 통과 못한 거라 over-shoot 카운트하지 않음.
+        in_x_range = (x_min <= pos[0] <= x_max)
+        if (not in_x_range
+                and last_dx_sign != 0 and dx_sign != 0
+                and last_dx_sign != dx_sign):
             overshoot_count += 1
             arrival_tol = min(overshoot_count * 2, 12)  # 2px씩 누적, 최대 12 (빠른 수렴)
             print(f'[move] over-shoot #{overshoot_count} mm={pos} → 도착 tol=±{arrival_tol} (텔포 유지)')
@@ -2776,9 +2779,14 @@ def collection_route():
         print('[collect] minimap config 없음 — 중단')
         return
 
-    # [1] 1층까지 낙하
-    print('[collect] [1] drop_down → 1층')
+    # [1] 1층까지 낙하 — _drop_until_floor1 사용 (밧줄 매달림 등 씹힘 시 down_teleport fallback)
+    # release_all로 텔포 pulse·공격 hold 확실히 끊고 시작
+    print('[collect] [1] _drop_until_floor1 → 1층')
+    release_all()
+    rsleep(0.3, 0.05)
     _drop_until_floor1(max_tries=8)
+    rsleep(0.3, 0.1)
+
     if STOP:
         return
 
@@ -2840,6 +2848,11 @@ def hunt():
     hold_all(stuck_dir)
 
     while not STOP:
+        # 0-PRE) Ctrl+F11 강제 녹화 중이면 매크로 일시 정지 — 녹화 끝날 때까지 대기
+        if _FORCE_REC_ACTIVE:
+            time.sleep(0.2)
+            continue
+
         screen = grab()
         frame += 1
         now = time.time()
@@ -2942,7 +2955,7 @@ def hunt():
             elif now - on_floor2_since > FLOOR2_HOLD_SECONDS and now - last_drop_down > DROP_DOWN_COOLDOWN:
                 drop_attempts += 1
                 release_all()
-                rsleep(0.05, 0.2)
+                rsleep(0.3, 0.05)   # 텔포/공격 hold 풀기 충분히 — 0.05는 짧아서 drop 키 씹힘
                 if drop_attempts <= 3:
                     print(f'[*] 사냥라인 위 감지 (mm_y={mm_y}) → drop_down #{drop_attempts}')
                     drop_down()
@@ -3086,18 +3099,37 @@ _HKID_FORCE_REC   = 3
 
 def _force_record_now():
     """Ctrl+F11 핸들러 — invi 매칭 안 잡혔을 때 사용자가 수동으로 캡차 영상 녹화 시작.
-    cooldown 무시, 25초 풀 녹화 (백그라운드). STOP 누르면 일찍 종료.
+    매크로는 녹화 동안 일시 정지 (사냥 키 떼고 hunt 루프 대기). 녹화 끝나면 자동 재개.
     """
+    global _FORCE_REC_ACTIVE
+    if _FORCE_REC_ACTIVE:
+        print('[Ctrl+F11] 이미 녹화 중 — 무시', flush=True)
+        return
+    _FORCE_REC_ACTIVE = True
+    release_all()
+    print(f'[Ctrl+F11] 매크로 일시 정지 + 강제 녹화 시작 ({INVI_REC_DURATION}초)',
+          flush=True)
+    _threading.Thread(target=_force_record_worker, daemon=True).start()
+
+
+_FORCE_REC_ACTIVE = False
+
+
+def _force_record_worker():
+    """녹화 thread — 끝나면 _FORCE_REC_ACTIVE 풀어서 매크로 자동 재개."""
+    global _FORCE_REC_ACTIVE
     try:
         import captcha_recorder
-        print(f'[Ctrl+F11] 강제 녹화 시작 ({INVI_REC_DURATION}초)', flush=True)
-        captcha_recorder.record_background(
+        captcha_recorder.record(
             grab, GAME_REGION,
             duration_sec=INVI_REC_DURATION,
             stop_check_fn=lambda: STOP,
         )
     except Exception as e:
-        print(f'[Ctrl+F11] 녹화 시작 실패: {e}', flush=True)
+        print(f'[Ctrl+F11] 녹화 중 에러: {e}', flush=True)
+    finally:
+        _FORCE_REC_ACTIVE = False
+        print('[Ctrl+F11] 강제 녹화 종료 — 매크로 재개', flush=True)
 
 
 def _hotkey_listener_thread():
