@@ -28,6 +28,7 @@ captcha_logs/
 captcha_recordings/*
 # 단, 솔버 작업용 원본 영상은 push (다른 컴퓨터 협업)
 !captcha_recordings/captcha_manual_20260521_143730.mp4
+!captcha_recordings/captcha_20260521_212551.mp4
 
 # 영상 분석용 임시 PNG (frame sample, box detection 시각화)
 captcha_analysis/
