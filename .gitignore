@@ -34,16 +34,12 @@ templates/2026*.png
 # word 캡차 작업용 zip (디렉토리와 중복)
 captcha_assets/word.zip
 
-# 투명도형찾기 캡차 — 원본 영상만 git에 포함 (인수인계용)
-# 디버그 png/시각화 mp4/frames 폴더 다 제외
+# 투명도형찾기 캡차 — mp4 영상 전부 포함 (인수인계용)
+# viz/, frames/ 안 mp4도 포함, png만 제외
 captcha_assets/invi/*.png
-captcha_assets/invi/viz/
+captcha_assets/invi/viz/*.png
 captcha_assets/invi/frames/
 captcha_assets/invi/*_frames/
-captcha_assets/invi/solver_*.mp4
-captcha_assets/invi/verify_*.mp4
-captcha_assets/invi/csrt_track_*.mp4
-# 원본 mp4 4개 + hint.jpeg는 포함 (gitignore 룰의 부정형은 이미 잡혀있음)
 
 # DNN 모델 (별도 다운로드)
 models/
