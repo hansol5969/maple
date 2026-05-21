@@ -302,7 +302,7 @@ INV_FIRST_SLOT_ABS   = (1482, 186)
 INV_TRIGGER_ABS      = (1664, 489, 1718, 541)  # x1, y1, x2, y2
 
 # 기타 탭 판매: N회 자동상점마다 1번 추가 실행 (기타템은 일괄 판매 X → 개별 더블클릭+ENTER)
-SHOP_SALE_COUNT_FOR_ETC = 5
+SHOP_SALE_COUNT_FOR_ETC = 4
 ETC_MAX_SELL_TRIES      = 100
 
 INV_FILLED_STD_THRESHOLD = 30    # 빈 std≈8-11, 찬 std≈54-87 (slot_inspect로 측정)
@@ -321,6 +321,16 @@ LIE_CHECK_EVERY   = 1      # 매 사이클 체크 — 거짓말 탐지기는 무
 LIE_HANDLE_MODE   = 'pause'  # 'pause' = 정지+경보+대기, 'stop' = 그대로 종료
 LIE_BEEP_INTERVAL = 1.0    # 경보음 주기(초)
 LIE_MAX_WAIT_SEC  = 300    # 5분 안에 안 풀리면 강제 종료
+
+# 투명 도형 찾기 캡차 (translucent) — 거짓말 탐지기와 별개의 독립 캡차
+# invi_ready 매칭되면 원본 영상 녹화 시작 + 매크로 일시정지 (사용자 수동 풀이 대기)
+INVI_READY_TEMPLATE = 'templates/invi_ready.png'  # "투명 도형 찾기 준비" (카운트다운 단계)
+INVI_ON_TEMPLATE    = 'templates/invi_on.png'     # "투명 도형 찾기" (추적 진행 단계)
+INVI_THRESHOLD      = 0.70
+INVI_CHECK_EVERY    = 1      # 매 사이클 체크 — invi도 lie와 동등한 최우선
+INVI_REC_DURATION   = 25     # 녹화 최대 길이 (초)
+INVI_REC_COOLDOWN   = 30     # 녹화 중복 시작 방지 (초)
+INVI_MAX_WAIT_SEC   = 300    # 5분 안에 안 풀리면 매크로 종료
 
 # 캡차 통과 확인 다이얼로그 ("거짓말 탐지기 테스트에 무사히 통과...")
 # 캡차 풀이 후 잠시 뒤 뜨는 성공 안내창 → ENTER로 닫기
@@ -898,7 +908,7 @@ def goto_safe_zone() -> bool:
             and tries < GOTO_SAFE_MAX_TRIES:
         # 매 4 cycle마다 거짓말 탐지기 체크 (최우선)
         safe_lie_counter += 1
-        if safe_lie_counter % 4 == 0 and lie_priority_check():
+        if safe_lie_counter % 4 == 0 and (lie_priority_check() or invi_priority_check()):
             return False
         screen = grab()
         pos = find_char_minimap_pos(screen)
@@ -1057,6 +1067,94 @@ def con_detected(screen) -> bool:
     if not CON_ENABLED:
         return False
     return find_one(_center_region(screen), CON_TEMPLATE, CON_THRESHOLD) is not None
+
+
+def invi_detected(screen) -> bool:
+    """투명 도형 찾기 캡차 감지 — '준비' / 진행 텍스트 둘 중 하나라도 매칭되면 True."""
+    center = _center_region(screen)
+    for tpl_path in (INVI_READY_TEMPLATE, INVI_ON_TEMPLATE):
+        if not os.path.exists(tpl_path):
+            continue
+        tpl = _load_tpl(tpl_path)
+        if tpl is None:
+            continue
+        if center.shape[0] < tpl.shape[0] or center.shape[1] < tpl.shape[1]:
+            continue
+        res = cv2.matchTemplate(center, tpl, cv2.TM_CCOEFF_NORMED)
+        _, val, _, _ = cv2.minMaxLoc(res)
+        if val >= INVI_THRESHOLD:
+            return True
+    return False
+
+
+_INVI_REC_LAST_TS = 0.0
+
+
+def invi_priority_check() -> bool:
+    """무거운 함수(회수/상점/안전지대) 도중 호출 — 투명 도형 캡차 감지 시 즉시 처리.
+    감지되면 release_all + handle_invi_detector 실행, True 리턴.
+    caller는 True 받으면 자기 함수도 즉시 중단해야 함."""
+    global STOP
+    if STOP:
+        return False
+    if not invi_detected(grab()):
+        return False
+    print('[invi-priority] 무거운 함수 도중 투명 도형 캡차 감지 → 즉시 처리')
+    release_all()
+    ok = handle_invi_detector()
+    if not ok:
+        STOP = True
+    return True
+
+
+def handle_invi_detector():
+    """투명 도형 찾기 캡차 처리 — 원본 영상 백그라운드 녹화 + invi 사라질 때까지 대기.
+    솔버 미완성이라 자동 풀이는 안 함. 사용자가 수동으로 풀이.
+    """
+    global _INVI_REC_LAST_TS, STOP
+    release_all()
+    print('[!] 투명 도형 찾기 캡차 감지')
+    try:
+        winsound.Beep(2200, 200)
+    except Exception:
+        pass
+
+    now = time.time()
+    if now - _INVI_REC_LAST_TS > INVI_REC_COOLDOWN:
+        try:
+            import captcha_recorder
+            print(f'[invi] 원본 영상 녹화 시작 (최대 {INVI_REC_DURATION}초)')
+            captcha_recorder.record_background(
+                grab, GAME_REGION,
+                duration_sec=INVI_REC_DURATION,
+                stop_check_fn=lambda: STOP or not invi_detected(grab()),
+            )
+            _INVI_REC_LAST_TS = now
+        except Exception as e:
+            print(f'[invi] 녹화 시작 실패: {e}')
+
+    print(f'[invi] 사용자 수동 풀이 대기 (최대 {INVI_MAX_WAIT_SEC}초)')
+    t0 = time.time()
+    last_beep = 0.0
+    while time.time() - t0 < INVI_MAX_WAIT_SEC:
+        if STOP:
+            return False
+        if not invi_detected(grab()):
+            print('[invi] 캡차 사라짐 — 사냥 재개')
+            rsleep(1.0, 0.3)
+            return True
+        # 1초마다 안내음
+        if time.time() - last_beep > 1.0:
+            try:
+                winsound.Beep(2200, 100)
+            except Exception:
+                pass
+            last_beep = time.time()
+        time.sleep(0.3)
+
+    print(f'[invi] {INVI_MAX_WAIT_SEC}초 안에 미해결 → 매크로 종료')
+    _stop()
+    return False
 
 
 def handle_con_dialog():
@@ -1868,7 +1966,7 @@ def _clear_mobs(x_min: int, x_max: int, duration: float = 3.0,
     last_attack = 0.0
     while time.time() < end and not STOP:
         clear_lie_counter += 1
-        if clear_lie_counter % 5 == 0 and lie_priority_check():
+        if clear_lie_counter % 5 == 0 and (lie_priority_check() or invi_priority_check()):
             return
         pos = find_char_minimap_pos(grab())
         if pos and not (x_min <= pos[0] <= x_max):
@@ -2164,7 +2262,7 @@ def _route_to_x(x_min: int, x_max: int, target_y: int = None,
     while time.time() < deadline and not STOP:
         # 매 6 cycle마다 거짓말 탐지기 체크 (최우선)
         route_lie_counter += 1
-        if route_lie_counter % 6 == 0 and lie_priority_check():
+        if route_lie_counter % 6 == 0 and (lie_priority_check() or invi_priority_check()):
             return False
         pos = find_char_minimap_pos(grab())
         now = time.time()
@@ -2275,7 +2373,7 @@ def _bounce_with_z_v2(x_min: int, x_max: int, round_trips: int = 2,
         last_uptp_attempt = 0.0
         while ends_hit < round_trips * 2 and time.time() - start < timeout and not STOP:
             bounce_lie_counter += 1
-            if bounce_lie_counter % 4 == 0 and lie_priority_check():
+            if bounce_lie_counter % 4 == 0 and (lie_priority_check() or invi_priority_check()):
                 return
             pos = find_char_minimap_pos(grab())
             now = time.time()
@@ -2760,6 +2858,16 @@ def hunt():
             last_key_refresh = time.time()
             continue
 
+        # 0-a) 투명 도형 찾기 캡차 (lie와 별개의 독립 캡차) — 녹화 + 수동 풀이 대기
+        if frame % INVI_CHECK_EVERY == 0 and invi_detected(screen):
+            ok = handle_invi_detector()
+            if not ok: _stop(); break
+            last_mm_move_ts = time.time()
+            on_floor2_since = None
+            hold_all(stuck_dir)
+            last_key_refresh = time.time()
+            continue
+
         # 0-b) 캡차 통과 안내창
         if (CON_ENABLED and now < con_check_until
                 and frame % CON_CHECK_EVERY == 0 and con_detected(screen)):
@@ -2970,27 +3078,53 @@ import threading as _threading
 
 _WM_HOTKEY        = 0x0312
 _MOD_CONTROL      = 0x0002
+_VK_F11           = 0x7A
 _VK_F12           = 0x7B
 _HKID_STOP        = 2
+_HKID_FORCE_REC   = 3
+
+
+def _force_record_now():
+    """Ctrl+F11 핸들러 — invi 매칭 안 잡혔을 때 사용자가 수동으로 캡차 영상 녹화 시작.
+    cooldown 무시, 25초 풀 녹화 (백그라운드). STOP 누르면 일찍 종료.
+    """
+    try:
+        import captcha_recorder
+        print(f'[Ctrl+F11] 강제 녹화 시작 ({INVI_REC_DURATION}초)', flush=True)
+        captcha_recorder.record_background(
+            grab, GAME_REGION,
+            duration_sec=INVI_REC_DURATION,
+            stop_check_fn=lambda: STOP,
+        )
+    except Exception as e:
+        print(f'[Ctrl+F11] 녹화 시작 실패: {e}', flush=True)
 
 
 def _hotkey_listener_thread():
-    """Windows RegisterHotKey + 메시지 loop — Ctrl+F12 매크로 STOP."""
+    """Windows RegisterHotKey + 메시지 loop — Ctrl+F12 매크로 STOP / Ctrl+F11 강제 녹화."""
     user32 = ctypes.windll.user32
     ok = user32.RegisterHotKey(None, _HKID_STOP, _MOD_CONTROL, _VK_F12)
     if not ok:
         print('[!] Ctrl+F12 핫키 등록 실패')
         return
-    print('[hotkey] Ctrl+F12=매크로 STOP', flush=True)
+    ok2 = user32.RegisterHotKey(None, _HKID_FORCE_REC, _MOD_CONTROL, _VK_F11)
+    if not ok2:
+        print('[!] Ctrl+F11 핫키 등록 실패')
+    print('[hotkey] Ctrl+F12=매크로 STOP, Ctrl+F11=캡차 강제 녹화', flush=True)
     msg = wt.MSG()
     while not STOP:
         if user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):  # PM_REMOVE
-            if msg.message == _WM_HOTKEY and msg.wParam == _HKID_STOP:
-                print('[Ctrl+F12] 매크로 STOP', flush=True)
-                _stop()
+            if msg.message == _WM_HOTKEY:
+                if msg.wParam == _HKID_STOP:
+                    print('[Ctrl+F12] 매크로 STOP', flush=True)
+                    _stop()
+                elif msg.wParam == _HKID_FORCE_REC:
+                    _force_record_now()
         else:
             time.sleep(0.02)
     user32.UnregisterHotKey(None, _HKID_STOP)
+    if ok2:
+        user32.UnregisterHotKey(None, _HKID_FORCE_REC)
 
 
 def main():
@@ -3034,7 +3168,7 @@ def main():
         print('[!] 경고: 안전지대 X 미설정 — minimap_setup.py red 재실행 필요')
     print(f'인벤 자동상점: 트리거 영역 {INV_TRIGGER_ABS} '
           f'std > {INV_FILLED_STD_THRESHOLD} 시 발동')
-    print(f'Ctrl+F12 = 긴급정지')
+    print(f'Ctrl+F12 = 긴급정지  |  Ctrl+F11 = 캡차 강제 녹화 ({INVI_REC_DURATION}초)')
     print(f'{START_DELAY:.0f}초 후 시작 — 게임 창에 포커스 두세요')
     time.sleep(START_DELAY)
 

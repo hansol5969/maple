@@ -299,7 +299,7 @@ INV_FIRST_SLOT_ABS   = (2748, 406)
 INV_TRIGGER_ABS      = (3052, 910, 3147, 1007)  # x1, y1, x2, y2
 
 # 기타 탭 판매: N회 자동상점마다 1번 추가 실행 (기타템은 일괄 판매 X → 개별 더블클릭+ENTER)
-SHOP_SALE_COUNT_FOR_ETC = 5
+SHOP_SALE_COUNT_FOR_ETC = 4
 ETC_MAX_SELL_TRIES      = 100
 
 INV_FILLED_STD_THRESHOLD = 30    # 빈 std≈8-11, 찬 std≈54-87 (slot_inspect로 측정)
@@ -1162,6 +1162,19 @@ def _handle_lie_detector_core():
     # 다이얼로그 로딩 대기 — puzzle 이미지 안 떠 있으면 slot 검출 실패
     print('[lie] 다이얼로그 로딩 대기 1.5s')
     rsleep(1.5, 0.3)
+
+    # 캡차 원본 영상 자동 녹화 (백그라운드) — translucent 솔버 튜닝 데이터 수집용.
+    # lie 다이얼로그 사라지면 stop_check_fn으로 일찍 종료 → word 캡차는 짧게 끊김.
+    try:
+        import captcha_recorder
+        print('[lie] 원본 영상 녹화 시작')
+        captcha_recorder.record_background(
+            grab, GAME_REGION,
+            duration_sec=25,
+            stop_check_fn=lambda: STOP or not lie_detected(grab()),
+        )
+    except Exception as _rec_err:
+        print(f'[lie] 캡차 녹화 시작 실패: {_rec_err}')
 
     if not os.path.exists(CAPTCHA_SOLVER_PATH):
         print(f'[lie] {CAPTCHA_SOLVER_PATH} 없음 → 수동 모드')

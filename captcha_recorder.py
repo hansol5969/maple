@@ -5,6 +5,8 @@
 사용:
   import captcha_recorder
   captcha_recorder.record(grab_fn, game_region, duration_sec=20)
+  # grab_fn() 결과(BGR ndarray)를 그대로 영상에 씀. 추가 crop 안 함.
+  # game_region은 영상 크기 fallback용으로만 사용 (실제 크기는 첫 프레임 기준).
 """
 
 import os
@@ -36,11 +38,11 @@ DEFAULT_FPS = 30
 
 def record(grab_fn, game_region, *, duration_sec=DEFAULT_DURATION_SEC,
            fps=DEFAULT_FPS, stop_check_fn=None, on_log=print):
-    """캡차 영상 녹화. 게임 영역만 캡처 → mp4 저장.
+    """캡차 영상 녹화 — grab_fn() 결과(이미 게임 영역) 그대로 저장.
 
     인자:
-      grab_fn: () → BGR np.ndarray (전체 화면 또는 게임 영역)
-      game_region: {'left', 'top', 'width', 'height'}
+      grab_fn: () → BGR np.ndarray (이미 게임 영역으로 잘라진 이미지)
+      game_region: {'width', 'height'} — 첫 프레임 실패 시 영상 크기 fallback
       duration_sec: 최대 녹화 시간
       stop_check_fn: () → bool. True면 일찍 종료 (예: 캡차 풀렸음 감지)
       on_log: 로그 함수
@@ -49,8 +51,14 @@ def record(grab_fn, game_region, *, duration_sec=DEFAULT_DURATION_SEC,
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     out_path = os.path.join(OUTPUT_DIR, f'captcha_{ts}.mp4')
 
-    W = int(game_region['width'])
-    H = int(game_region['height'])
+    # 첫 프레임으로 실제 크기 결정 (grab_fn이 주는 그대로)
+    first = grab_fn()
+    if first is None:
+        H = int(game_region['height'])
+        W = int(game_region['width'])
+    else:
+        H, W = first.shape[:2]
+
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(out_path, fourcc, fps, (W, H))
     if not out.isOpened():
@@ -62,26 +70,29 @@ def record(grab_fn, game_region, *, duration_sec=DEFAULT_DURATION_SEC,
     frame_interval = 1.0 / fps
     next_t = t0
     n_frames = 0
+    if first is not None:
+        out.write(first)
+        n_frames += 1
     try:
         while time.time() - t0 < duration_sec:
             if stop_check_fn and stop_check_fn():
                 on_log('[captcha-rec] stop_check_fn=True → 일찍 종료')
                 break
-            screen = grab_fn()
-            if screen is None:
+            frame = grab_fn()
+            if frame is None:
                 time.sleep(0.05)
                 continue
-            # grab_fn()이 이미 GAME_REGION 영역만 반환 (macro_red.grab은 mss로 영역 캡처).
-            # 추가 crop 하면 좌표 어긋나 잘림 → 크기만 맞추기.
-            if screen.shape[:2] != (H, W):
-                # 혹시 grab_fn이 전체 화면 반환하면 game_region으로 crop
-                if screen.shape[0] >= game_region['top'] + H and screen.shape[1] >= game_region['left'] + W:
+            # grab_fn()이 이미 game_region 영역만 반환하면 그대로 사용.
+            # 전체 화면을 반환하면 game_region으로 crop. 어느 쪽도 아니면 resize fallback.
+            if frame.shape[:2] != (H, W):
+                if (frame.shape[0] >= game_region['top'] + H and
+                        frame.shape[1] >= game_region['left'] + W):
                     x = game_region['left']
                     y = game_region['top']
-                    screen = screen[y:y+H, x:x+W]
+                    frame = frame[y:y+H, x:x+W]
                 else:
-                    screen = cv2.resize(screen, (W, H))
-            out.write(screen)
+                    frame = cv2.resize(frame, (W, H))
+            out.write(frame)
             n_frames += 1
             next_t += frame_interval
             sleep_time = next_t - time.time()

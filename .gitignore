@@ -24,6 +24,12 @@ minimap_config_red.json
 # 캡차 처리 동적 로그
 captcha_logs/
 
+# 실전 캡차 자동 녹화본 (용량 큼, 환경 의존)
+captcha_recordings/
+
+# 영상 분석용 임시 PNG (frame sample, box detection 시각화)
+captcha_analysis/
+
 # 진단용 임시 스크립트
 _diag_match.py
 _crop_inspect.py
