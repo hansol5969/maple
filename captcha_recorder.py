@@ -110,9 +110,11 @@ TRIGGER_TEMPLATES = [
     'templates/invi_ready.png',
     'templates/invi_on.png',
 ]
-TRIGGER_MATCH_THRESH = 0.7
-TRIGGER_POLL_SEC = 0.5
-COOLDOWN_AFTER_RECORD_SEC = 30  # 녹화 후 같은 캡차 재트리거 방지
+TRIGGER_MATCH_THRESH = 0.6  # 0.7→0.6 완화 (환경별 매칭 약할 수 있음)
+TRIGGER_POLL_SEC = 0.3      # 0.5→0.3 더 자주 (캡차 짧게 떳다 사라지면 놓침)
+COOLDOWN_AFTER_RECORD_SEC = 30
+DEBUG_LOG_EVERY_N_POLLS = 20  # 매 N polling마다 max score 로그
+DEBUG_SAVE_SCREENS_DIR = 'captcha_recordings/debug'
 
 
 def _load_templates(paths):
@@ -130,18 +132,25 @@ def _load_templates(paths):
     return templates
 
 
-def _match_any(screen, templates, thresh):
-    """screen에서 templates 중 하나라도 thresh 이상 매칭되면 (path, score) 리턴."""
+def _match_any(screen, templates, thresh, return_best=False):
+    """screen에서 templates 매칭. thresh 이상이면 (path, score), 아니면 None.
+    return_best=True면 thresh 무관 max score (path, score) 항상 리턴.
+    """
+    best_path, best_val = None, 0
     for path, tpl in templates:
         if screen.shape[0] < tpl.shape[0] or screen.shape[1] < tpl.shape[1]:
             continue
         try:
             res = cv2.matchTemplate(screen, tpl, cv2.TM_CCOEFF_NORMED)
             _, max_val, _, _ = cv2.minMaxLoc(res)
-            if max_val >= thresh:
-                return path, max_val
+            if max_val > best_val:
+                best_val, best_path = max_val, path
         except Exception:
             continue
+    if return_best:
+        return (best_path, best_val) if best_path else None
+    if best_val >= thresh:
+        return best_path, best_val
     return None
 
 
@@ -161,16 +170,37 @@ def watch_and_record(grab_fn, game_region, *,
     if not templates:
         on_log('[watch] 트리거 템플릿 없음 — 종료')
         return
-    on_log(f'[watch] 감시 시작 ({len(templates)} 템플릿, thresh={match_thresh})')
+    on_log(f'[watch] 감시 시작 ({len(templates)} 템플릿, thresh={match_thresh}, poll={poll_interval}s)')
+    os.makedirs(DEBUG_SAVE_SCREENS_DIR, exist_ok=True)
+    poll_n = 0
+    max_seen = {p: 0 for p, _ in templates}
     while True:
         screen = grab_fn()
         if screen is None:
             time.sleep(poll_interval)
             continue
+        poll_n += 1
+        # 항상 max score 추적 — 디버그용
+        best = _match_any(screen, templates, match_thresh=0, return_best=True)
+        if best:
+            p, s = best
+            if s > max_seen.get(p, 0):
+                max_seen[p] = s
+        # 매칭 성공 (thresh 이상)
         m = _match_any(screen, templates, match_thresh)
+        # 주기적 디버그 로그
+        if poll_n % DEBUG_LOG_EVERY_N_POLLS == 0:
+            stats = ', '.join(f'{os.path.basename(p)}:{v:.2f}' for p, v in max_seen.items())
+            on_log(f'[debug] poll#{poll_n} max_seen={stats}, current_max={best[1]:.2f if best else 0}')
         if m:
             path, score = m
             on_log(f'[trigger] {path} 매칭 (score={score:.3f}) → 녹화 시작')
+            # 트리거 시점 화면도 저장 (분석용)
+            try:
+                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                cv2.imwrite(os.path.join(DEBUG_SAVE_SCREENS_DIR, f'trigger_{ts}.png'), screen)
+            except Exception:
+                pass
             try:
                 winsound = __import__('winsound')
                 winsound.Beep(1500, 100)
@@ -178,6 +208,7 @@ def watch_and_record(grab_fn, game_region, *,
                 pass
             out_path = record(grab_fn, game_region, duration_sec=duration_sec, on_log=on_log)
             on_log(f'[watch] 녹화 완료, {cooldown_sec}s 쿨다운')
+            max_seen = {p: 0 for p, _ in templates}  # 쿨다운 후 통계 리셋
             time.sleep(cooldown_sec)
         else:
             time.sleep(poll_interval)
